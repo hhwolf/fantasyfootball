@@ -87,6 +87,11 @@ export default async function PlayerPage({ params, searchParams }: { params: Pro
             <div className="tabular-nums">{String(meta.gamesUsed ?? 0)}</div>
             <div className="text-muted-foreground">Opponent factor (DvP)</div>
             <div className="tabular-nums">{meta.dvp != null ? `×${(meta.dvp as number).toFixed(2)}` : "–"}</div>
+            <div className="text-muted-foreground">Game script (Vegas)</div>
+            <div className="tabular-nums">
+              {meta.script != null ? `×${(meta.script as number).toFixed(2)}` : "–"}
+              {meta.impliedTotal != null ? ` · implied ${(meta.impliedTotal as number).toFixed(1)} pts, spread ${(meta.spread as number) > 0 ? "+" : ""}${(meta.spread as number).toFixed(1)}` : ""}
+            </div>
             <div className="text-muted-foreground">Injury factor</div>
             <div className="tabular-nums">{meta.injury != null ? `×${(meta.injury as number).toFixed(2)}` : "–"}</div>
             <div className="text-muted-foreground">Bye</div>

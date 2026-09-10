@@ -134,21 +134,25 @@ export function sleeperFallbackPoints(stats: Record<string, number>, scoringItem
   return typeof v === "number" && Number.isFinite(v) ? v : undefined;
 }
 
+export type SleeperScore = { points: number; method: "rescored" | "fallback" };
+
 /**
  * Score a Sleeper projection using the league's ESPN scoring settings.
- * Falls back to Sleeper's own pts_* total when nothing in the line maps to ESPN ids.
+ * Falls back to Sleeper's own pts_* total when nothing in the line maps to ESPN ids, or when a
+ * K / D/ST re-score lands far below Sleeper's standard total (league uses stats we cannot map).
  */
-export function scoreSleeperProjection(stats: Record<string, number>, scoringItems: ScoringItem[], position?: Position): number {
+export function scoreSleeperProjectionDetailed(stats: Record<string, number>, scoringItems: ScoringItem[], position?: Position): SleeperScore {
   const line = sleeperStatsToEspn(stats);
   if (Object.keys(line).length === 0) {
-    return sleeperFallbackPoints(stats, scoringItems) ?? 0;
+    return { points: sleeperFallbackPoints(stats, scoringItems) ?? 0, method: "fallback" };
   }
   const scored = scoreStats(line, scoringItems, position);
-  // K and D/ST scoring rules vary a lot between leagues and Sleeper's stat vocabulary does not
-  // cover every ESPN bucket. When the re-score lands far below Sleeper's own standard total,
-  // the league almost certainly uses stats we cannot map; prefer Sleeper's total then.
   if ((position === "K" || position === "DST") && typeof stats.pts_std === "number" && stats.pts_std > 0 && scored < 0.5 * stats.pts_std) {
-    return stats.pts_std;
+    return { points: stats.pts_std, method: "fallback" };
   }
-  return scored;
+  return { points: scored, method: "rescored" };
+}
+
+export function scoreSleeperProjection(stats: Record<string, number>, scoringItems: ScoringItem[], position?: Position): number {
+  return scoreSleeperProjectionDetailed(stats, scoringItems, position).points;
 }

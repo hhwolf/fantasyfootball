@@ -3,6 +3,7 @@ import type { ScoringItem } from "../espn/schemas";
 import type { LeaguePlayer, LeagueSnapshot } from "../league/types";
 import type { UsageRow } from "../db/schema";
 import type { ProTeamInfo } from "../espn/client";
+import type { TeamOdds } from "../espn/odds";
 
 export type SourceId = "espn" | "sleeper" | "custom" | "consensus";
 export const SOURCE_IDS: SourceId[] = ["espn", "sleeper", "custom", "consensus"];
@@ -45,6 +46,8 @@ export type ProjectionContext = {
   consensusWeights?: Record<string, Partial<Record<SourceId, number>>>;
   /** Weeks the season has that count (usually 17 or 18). */
   finalWeek: number;
+  /** Vegas lines keyed by proTeamId (empty when unavailable). */
+  odds?: Record<number, TeamOdds>;
 };
 
 export interface ProjectionSource {

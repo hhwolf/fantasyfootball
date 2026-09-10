@@ -32,6 +32,19 @@ instead. Everything works except history (accuracy tracker, projection snapshots
    recomputes accuracy, and refreshes Sleeper/nflverse reference data. On Vercel Pro you can split
    these into multiple schedules; the job functions live in `src/lib/jobs.ts`.
 
+On **Vercel Pro**, replace the single cron with per-job schedules (query strings are allowed in cron paths):
+
+```json
+{ "crons": [
+  { "path": "/api/cron/daily?jobs=refreshLeague", "schedule": "0 */6 * * *" },
+  { "path": "/api/cron/daily?jobs=snapshotProjections", "schedule": "0 0 * * 5" },
+  { "path": "/api/cron/daily?jobs=snapshotProjections", "schedule": "30 16 * * 0" },
+  { "path": "/api/cron/daily?jobs=snapshotProjections", "schedule": "0 23 * * 1" },
+  { "path": "/api/cron/daily?jobs=refreshReferenceData,recordActuals", "schedule": "0 10 * * 2" }
+]}
+```
+(Times are UTC: Thu 8pm ET, Sun 12:30pm ET, Mon 7pm ET, Tue 6am ET.)
+
 Run a job manually: `curl -H "Authorization: Bearer $CRON_SECRET" "https://<app>/api/cron/daily?jobs=refreshReferenceData,snapshotProjections"`.
 
 ## How projections work
@@ -39,9 +52,11 @@ Run a job manually: `curl -H "Authorization: Bearer $CRON_SECRET" "https://<app>
 | Source | What it is |
 |---|---|
 | ESPN | ESPN's weekly projection, already scored with your league's settings |
-| Sleeper | Sleeper's raw stat projections re-scored with your league's scoring items |
-| Model | Rules-based: recent usage (targets/carries/attempts, EWMA) × regressed efficiency, blended with the market prior, adjusted for opponent (defense vs position), injury status and byes. Coefficients in `src/lib/projections/sources/custom.ts` (`MODEL_PARAMS`). |
+| Sleeper | Sleeper's raw stat projections re-scored with your league's scoring items, calibrated per position against ESPN's own applied totals (matters for K and D/ST) |
+| Model | Rules-based: recent usage (targets/carries/attempts, EWMA) × regressed efficiency, blended with the market prior, adjusted for opponent (defense vs position), Vegas implied team total (game script), injury status and byes. Coefficients in `src/lib/projections/sources/custom.ts` (`MODEL_PARAMS`). |
 | Consensus | Weighted blend (default ESPN .4 / Sleeper .4 / Model .2). After 3 weeks of tracked accuracy, weights become inverse-MSE per position. |
+
+Data sources, all free and keyless: ESPN fantasy API (league, rosters, projections), ESPN scoreboard (Vegas lines), Sleeper (projections, player id map), nflverse (weekly usage stats, id map).
 
 ## Scripts
 

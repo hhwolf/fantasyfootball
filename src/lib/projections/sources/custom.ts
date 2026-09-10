@@ -2,6 +2,7 @@ import { STAT, type Position } from "../../espn/constants";
 import { scoreStats } from "../../espn/scoring";
 import type { UsageRow } from "../../db/schema";
 import { POSITION_SD, injuryMultiplier, isOnBye, type PlayerProjection, type ProjectionContext, type ProjectionSource } from "../types";
+import { averageImplied } from "../../espn/odds";
 
 /** Every tunable coefficient of the rules-based model lives here. */
 export const MODEL_PARAMS = {
@@ -23,7 +24,26 @@ export const MODEL_PARAMS = {
   questionableSdBoost: 0.5,
   /** Minimum games of usage before trusting the volume model at all. */
   minGames: 2,
+  /** Game-script sensitivity to Vegas implied team total, by position (fraction of relative deviation passed through). */
+  scriptSensitivity: { QB: 0.6, WR: 0.6, TE: 0.5, RB: 0.35, K: 0.7, DST: 0 } as Record<Position, number>,
+  /** Bounds on the game-script multiplier. */
+  scriptClamp: [0.85, 1.15] as [number, number],
 };
+
+/**
+ * Vegas game-script factor: teams expected to score more give their players more opportunity.
+ * D/ST is inverted: facing a high implied opponent total is bad for a defense.
+ */
+export function scriptFactor(position: Position, teamImplied: number | undefined, opponentImplied: number | undefined, leagueAvg: number): number {
+  const [lo, hi] = MODEL_PARAMS.scriptClamp;
+  const clamp = (x: number) => Math.min(hi, Math.max(lo, x));
+  if (position === "DST") {
+    if (opponentImplied == null || !leagueAvg) return 1;
+    return clamp(1 - 0.6 * ((opponentImplied - leagueAvg) / leagueAvg));
+  }
+  if (teamImplied == null || !leagueAvg) return 1;
+  return clamp(1 + MODEL_PARAMS.scriptSensitivity[position] * ((teamImplied - leagueAvg) / leagueAvg));
+}
 
 /** League-average efficiency, used to regress small samples. */
 const POSITION_EFFICIENCY: Record<Position, { ydsPerTarget: number; ydsPerCarry: number; recRate: number; tdPerTarget: number; tdPerCarry: number; ydsPerAtt: number; tdPerAtt: number; intPerAtt: number }> = {
@@ -112,6 +132,8 @@ export function createCustomSource(deps: { espn: Map<number, PlayerProjection>; 
     async project(ctx: ProjectionContext, espnIds: number[]) {
       const out = new Map<number, PlayerProjection>();
       const wPrior = priorWeight(ctx.week);
+      const odds = ctx.odds ?? {};
+      const leagueAvgImplied = averageImplied(odds);
       for (const id of espnIds) {
         const p = ctx.players.get(id);
         if (!p) continue;
@@ -124,6 +146,8 @@ export function createCustomSource(deps: { espn: Map<number, PlayerProjection>; 
         const injury = injuryMultiplier(p.injuryStatus);
         const opponentId = ctx.proTeams[p.proTeamId]?.gamesByWeek[ctx.week]?.opponentId;
         const dvp = deps.dvpFactor(p.position, opponentId);
+        const teamOdds = odds[p.proTeamId];
+        const script = scriptFactor(p.position, teamOdds?.impliedTotal, teamOdds ? odds[teamOdds.opponentId]?.impliedTotal : undefined, leagueAvgImplied);
 
         let base = prior;
         let volumePts: number | null = null;
@@ -139,13 +163,13 @@ export function createCustomSource(deps: { espn: Map<number, PlayerProjection>; 
           }
         }
         const questionable = p.injuryStatus?.toUpperCase() === "QUESTIONABLE" ? 1 : 0;
-        const points = bye ? 0 : Math.max(0, base * dvp * injury);
+        const points = bye ? 0 : Math.max(0, base * dvp * script * injury);
         out.set(id, {
           espnId: id,
           week: ctx.week,
           points: Math.round(points * 100) / 100,
           sd: POSITION_SD[p.position] * (1 + MODEL_PARAMS.questionableSdBoost * questionable),
-          meta: { prior, volumePts, dvp, injury, bye, gamesUsed, wPrior },
+          meta: { prior, volumePts, dvp, script, impliedTotal: teamOdds?.impliedTotal, spread: teamOdds?.spread, injury, bye, gamesUsed, wPrior },
         });
       }
       return out;

@@ -11,6 +11,8 @@ import { previewMatchup } from "@/lib/features/matchup";
 import { suggestWaivers } from "@/lib/features/waivers";
 import { PlayerCell } from "@/components/player-cell";
 import { SLOT_NAMES } from "@/lib/espn/constants";
+import { LineupWarnings } from "@/components/lineup-warnings";
+import { lineupWarnings } from "@/lib/features/lineup-warnings";
 
 export const dynamic = "force-dynamic";
 
@@ -28,10 +30,12 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const preview = oppLineup ? previewMatchup(myLineup, oppLineup, wp.bySource.consensus) : undefined;
   const waivers = suggestWaivers(wp.freeAgents, myTeam.roster, bundle.league.slotCounts, pd.valueCtx, { limit: 5 });
   const gain = myLineup.total - myLineup.currentTotal;
+  const warnings = lineupWarnings(myTeam.roster, bundle.league.slotCounts, pd.byeThisWeek);
 
   return (
     <div className="space-y-6">
       <PageHeader title={myTeam.name} bundle={bundle} />
+      <LineupWarnings warnings={warnings} week={bundle.week} />
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <StatTile label="Projected (optimal)" value={fmt1(myLineup.total)} sub={`current lineup ${fmt1(myLineup.currentTotal)} (${fmtSigned(gain)})`} />
         <StatTile label="Win probability" value={preview ? fmtPct(preview.winProb) : "–"} sub={oppTeam ? `vs ${oppTeam.name} (${fmt1(preview?.oppMean)})` : "no matchup this week"} />

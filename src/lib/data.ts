@@ -14,6 +14,7 @@ import { buildSleeperMap } from "./idmap/resolve";
 import { getRecentUsage } from "./nflverse/loader";
 import { computeDvp, dvpFactor } from "./nflverse/dvp";
 import { PRO_TEAM, type Position } from "./espn/constants";
+import { getWeekOdds, type TeamOdds } from "./espn/odds";
 import type { UsageRow } from "./db/schema";
 
 export class NotConfiguredError extends Error {
@@ -137,6 +138,11 @@ export async function loadPlayersById(creds: EspnCreds, week: number, ids: numbe
 export const loadProTeams = (season: number) =>
   unstable_cache(async (): Promise<Record<number, ProTeamInfo>> => getProTeamSchedules(season).catch(() => ({})), ["pro-teams", String(season)], { revalidate: 86400 })();
 
+// ---------- vegas odds ----------
+
+const loadOdds = (season: number, week: number) =>
+  unstable_cache(async (): Promise<Record<number, TeamOdds>> => getWeekOdds(season, week).catch((e) => (console.error("odds", e), {})), ["odds", String(season), String(week)], { revalidate: 3600 })();
+
 // ---------- sleeper ----------
 
 /** Sleeper's raw response is several MB; keep only the fields the id resolver and scorer use so it fits the 2MB cache limit. */
@@ -176,10 +182,11 @@ export type WeekProjections = {
 export async function projectWeek(bundle: LeagueBundle, opts: { includeFreeAgents?: boolean } = {}): Promise<WeekProjections> {
   const { creds, league, season, week, settings } = bundle;
   const includeFA = opts.includeFreeAgents ?? true;
-  const [freeAgents, proTeams, sleeperRaw] = await Promise.all([
+  const [freeAgents, proTeams, sleeperRaw, odds] = await Promise.all([
     includeFA ? loadFreeAgents(creds, week) : Promise.resolve([] as LeaguePlayer[]),
     loadProTeams(season),
     loadSleeperWeek(season, week),
+    loadOdds(season, week),
   ]);
 
   const players = new Map<number, LeaguePlayer>();
@@ -227,6 +234,7 @@ export async function projectWeek(bundle: LeagueBundle, opts: { includeFreeAgent
     usage,
     consensusWeights: settings.consensusWeights as ProjectionContext["consensusWeights"],
     finalWeek: league.finalWeek,
+    odds,
   };
   const bySource = await projectAll(ctx, ids, (position: Position, opponentProTeamId) =>
     opponentProTeamId == null ? 1 : dvpFactor(dvp, position, PRO_TEAM[opponentProTeamId] ?? ""),
