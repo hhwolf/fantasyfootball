@@ -3,11 +3,11 @@ import { revalidateTag } from "next/cache";
 import { computeAccuracy, type AccuracyInput } from "./accuracy/compute";
 import { deriveConsensusWeights, type WeeklyAccuracy } from "./accuracy/weights";
 import { getDb, schema } from "./db";
-import { loadLeague, loadProTeams, projectWeek, saveProjectionSnapshot } from "./data";
+import { NotConfiguredError, loadLeague, loadProTeams, projectWeek, resolveSeasonWeek, saveProjectionSnapshot } from "./data";
 import { loadUsageWithFallback } from "./nflverse/loader";
 import { syncSleeperPlayers } from "./sleeper/players";
 import { syncNflversePlayerIds } from "./nflverse/players";
-import { saveConsensusWeights } from "./settings";
+import { loadSettings, saveConsensusWeights } from "./settings";
 import type { Position } from "./espn/constants";
 import type { SourceId } from "./projections/types";
 import { allRosteredPlayers } from "./league/snapshot";
@@ -19,6 +19,7 @@ async function run(job: string, fn: () => Promise<unknown>): Promise<JobResult> 
     const detail = await fn();
     return { job, ok: true, detail };
   } catch (err) {
+    if (err instanceof NotConfiguredError) return { job, ok: true, detail: { skipped: "league not configured" } };
     console.error(`job ${job} failed`, err);
     return { job, ok: false, error: err instanceof Error ? err.message : String(err) };
   }
@@ -113,11 +114,13 @@ export const refreshReferenceData = () =>
   run("refreshReferenceData", async () => {
     const db = getDb();
     if (!db) return { skipped: "no database" };
-    const bundle = await loadLeague();
+    // Reference data is league-independent, so this must work before a league is configured.
+    const settings = await loadSettings();
+    const { season } = await resolveSeasonWeek(settings);
     const players = await syncSleeperPlayers(db);
     const nflverseIds = await syncNflversePlayerIds(db).catch((e) => (console.error("nflverse ids", e), 0));
-    const usage = await loadUsageWithFallback(db, bundle.season);
-    return { players, nflverseIds, usage };
+    const usage = await loadUsageWithFallback(db, season);
+    return { season, players, nflverseIds, usage };
   });
 
 /**
