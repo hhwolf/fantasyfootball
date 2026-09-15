@@ -42,7 +42,7 @@ type WeeklyCsvRow = {
   fantasy_points_ppr?: number | null;
 };
 
-export type LoadUsageResult = { season: number; rows: number; missing?: boolean };
+export type LoadUsageResult = { season: number; rows: number; missing?: boolean; maxWeek?: number };
 
 const int = (v: unknown): number => {
   const n = typeof v === "number" ? v : Number(v);
@@ -126,17 +126,22 @@ export async function loadWeeklyUsage(db: Db, season: number, fetchImpl: FetchIm
         },
       });
   }
-  return { season, rows: rows.length };
+  return { season, rows: rows.length, maxWeek: rows.reduce((m, r) => Math.max(m, r.week), 0) };
 }
 
 export type LoadUsageFallbackResult = { seasons: number[]; results: LoadUsageResult[] };
 
-/** Load `season`; if the file is missing or empty (e.g. preseason), also load `season - 1`. */
-export async function loadUsageWithFallback(db: Db, season: number, fetchImpl: FetchImpl = fetch): Promise<LoadUsageFallbackResult> {
+/**
+ * Load the current season and, when it is missing or still young (the model blends in
+ * last season's games through `priorSeasonWeeks`), the prior season as well.
+ */
+export async function loadUsageWithFallback(db: Db, season: number, fetchImpl: FetchImpl = fetch, opts: { priorSeasonWeeks?: number } = {}): Promise<LoadUsageFallbackResult> {
+  const { priorSeasonWeeks = 3 } = opts;
   const results: LoadUsageResult[] = [];
   const current = await loadWeeklyUsage(db, season, fetchImpl);
   results.push(current);
-  if (current.missing || current.rows === 0) {
+  const weeksLoaded = current.maxWeek ?? 0;
+  if (current.missing || current.rows === 0 || weeksLoaded <= priorSeasonWeeks) {
     results.push(await loadWeeklyUsage(db, season - 1, fetchImpl));
   }
   return { seasons: results.filter((r) => r.rows > 0).map((r) => r.season), results };
